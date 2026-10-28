@@ -52,9 +52,11 @@ to return to your own code.
 | --- | --- |
 | `.\workshop.ps1 pause` | Stop sending driving commands; keep Unity and the bridge open |
 | `.\workshop.ps1 restart` | Reload saved Python changes and resume the selected controller |
+| `.\workshop.ps1 evaluate` | Run until 3 laps or a crash, then report lap times and speeds |
 | `.\workshop.ps1 logs -Follow` | See controller errors and connection messages |
 | `.\workshop.ps1 status` | Show container state |
-| `.\workshop.ps1 test` | Run supplied Python checks in a container without driving |
+| `.\workshop.ps1 test` | Run launcher checks, then supplied Python checks in a container, without driving |
+| `.\workshop.ps1 test -Launcher` | Run only the launcher checks (mocked; no Docker needed) |
 | `.\workshop.ps1 stop` | Close the workshop simulator and remove its containers; keep downloads |
 
 If you already have the official practice simulator, avoid another download:
@@ -117,8 +119,28 @@ solution. Requested speed is converted to normalized simulator throttle by
 - [ ] Compare lap times using the simulator's lap/collision counters.
 
 Record controller settings, completed laps and collisions when comparing changes.
-This starter includes neither the main project's lap recorder nor its plotting
-pipeline; those can be a later workshop exercise.
+
+## Evaluate a run
+
+With the workshop started and **Autonomous** selected in the simulator:
+
+```powershell
+.\workshop.ps1 evaluate -Controller example   # or -Controller starter for controller.py
+```
+
+This reloads the selected controller, resets the car and watches the simulator
+until the car completes 3 laps, collides, stays stopped for 15 seconds or reaches
+the timeout. A live line shows the current lap time and speed; at the end it
+prints lap times, best and average lap, total time, top and average speed,
+distance and collisions, then stops the controller. Each summary is also saved
+as JSON in `.runtime/results/`. Use `-Laps 5` or `-Timeout 600` to change the
+run. Lap times come from the simulator's own lap timer; a lap marked
+`(measured)` was timed by the evaluator because the simulator reported none.
+
+On Linux or macOS use `./workshop.sh` with the same actions and `--` options,
+for example `./workshop.sh evaluate --controller example --laps 3`. It does not
+download the simulator: pass `--simulator PATH` to `start`, or open the simulator
+yourself.
 
 ## How the supplied runtime works
 
@@ -139,8 +161,10 @@ flowchart LR
 | [runtime/node.py](runtime/node.py) | Sensor validation, ROS subscriptions and control loop |
 | [runtime/core.py](runtime/core.py) | Scan conversion, bounds and simulator speed feedback |
 | [runtime/bridge.py](runtime/bridge.py) | AutoDRIVE startup handshake and final command expiry |
+| [runtime/evaluate.py](runtime/evaluate.py) | Timed lap/crash evaluation and run summary |
 | [compose.yaml](compose.yaml) | Isolated workshop services and live source mounts |
-| [workshop.ps1](workshop.ps1) | Download, start, reload, pause and stop |
+| [workshop.ps1](workshop.ps1) | Download, start, reload, evaluate, pause and stop |
+| [workshop.sh](workshop.sh) | Same actions for Linux/macOS, without the download |
 
 Sensor checks use both source timestamps and monotonic receive times. Commands
 expire at the bridge after 0.5 seconds without updates, including when participant
@@ -164,7 +188,7 @@ For checks without Docker, install Python 3.10+ and run from this folder:
 
 ```powershell
 python -B -m unittest discover -s tests -v
-powershell -NoProfile -ExecutionPolicy Bypass -File tests/test-launcher.ps1
+.\workshop.ps1 test -Launcher        # or ./workshop.sh test --launcher
 ```
 
 Before teaching, run `start`, select the example and verify steering and simulator

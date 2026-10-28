@@ -44,3 +44,15 @@ services:
       bridge:
         condition: service_healthy
     command: [python3, -m, runtime.node, --controller, "${WORKSHOP_CONTROLLER:-controller}"]
+
+  # Started only by the launcher's evaluate action, never by `up`.
+  evaluator:
+    <<: *runtime
+    profiles: [evaluate]
+    network_mode: service:bridge
+    ipc: service:bridge
+    volumes:
+      - ./runtime:/workshop/runtime:ro
+      - ./workshop_api.py:/workshop/workshop_api.py:ro
+      - ./.runtime/results:/workshop/results
+    command: [python3, -m, runtime.evaluate]

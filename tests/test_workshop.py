@@ -5,6 +5,7 @@ import unittest
 import controller
 from examples.follow_the_gap import drive as example
 from runtime.bridge import CommandExpiry, REQUIRED_FIELDS, install_startup_guard
+from runtime.evaluate import RunTracker, format_summary
 from runtime.core import MAX_THROTTLE, clean_scan, fresh_stamp, read_odometry, simulator_command
 from workshop_api import DriveCommand, Observation
 
@@ -138,6 +139,63 @@ class BridgeTests(unittest.TestCase):
         frame = dict.fromkeys(REQUIRED_FIELDS, 'value')
         handler('client', frame)
         self.assertEqual(forwarded, [('client', frame)])
+
+
+class EvaluationTests(unittest.TestCase):
+    def tracker(self):
+        tracker = RunTracker(laps=3, timeout=300, stall_seconds=15)
+        tracker.start(100.0, lap_count=2, collisions=1)  # counters need not start at zero
+        return tracker
+
+    def test_three_laps_complete_with_simulator_lap_times(self):
+        tracker = self.tracker()
+        for lap, now in enumerate((120.0, 141.0, 160.5), start=3):
+            tracker.update_odom(now - 1, 1.0, 0.0, 0.9)
+            tracker.update_laps(now, lap)
+            tracker.update_last_lap_time(now - 100 - 0.5 * (lap - 2))
+        self.assertEqual(tracker.outcome(160.5), "completed")
+        summary = tracker.summary(170.0, "completed", "examples.follow_the_gap")
+        self.assertEqual(summary["laps_completed"], 3)
+        self.assertEqual([lap["source"] for lap in summary["laps"]], ["simulator"] * 3)
+        self.assertEqual(summary["total_time_s"], 60.5)  # ends at the line
+        self.assertEqual(summary["top_speed_mps"], 0.9)
+        self.assertEqual(summary["collisions"], 0)
+        self.assertIn("COMPLETED", format_summary(summary))
+
+    def test_measured_lap_time_is_kept_until_simulator_reports(self):
+        tracker = self.tracker()
+        tracker.update_laps(125.0, 3)
+        tracker.update_last_lap_time(0.0)  # not a lap time yet
+        self.assertEqual(tracker.laps[0], {"lap": 1, "time_s": 25.0, "source": "measured"})
+
+    def test_final_lap_waits_briefly_for_simulator_time(self):
+        tracker = self.tracker()
+        tracker.update_laps(110.0, 5)
+        self.assertEqual(len(tracker.laps), 3)
+        self.assertIsNone(tracker.outcome(110.2))
+        self.assertEqual(tracker.outcome(111.0), "completed")
+
+    def test_new_collision_ends_run_as_crash(self):
+        tracker = self.tracker()
+        tracker.update_odom(101.0, 0.5, 0.0, 0.5)
+        tracker.update_collisions(2)
+        self.assertEqual(tracker.outcome(102.0), "crashed")
+        self.assertEqual(tracker.summary(102.0, "crashed")["collisions"], 1)
+
+    def test_stall_and_timeout(self):
+        tracker = self.tracker()
+        self.assertEqual(tracker.outcome(115.0), "stalled")
+        tracker = RunTracker(laps=3, timeout=30, stall_seconds=15)
+        tracker.start(0.0, 0, 0)
+        for now in range(31):
+            tracker.update_odom(float(now), now * 0.5, 0.0, 0.5)
+        self.assertEqual(tracker.outcome(30.0), "timeout")
+
+    def test_distance_ignores_reset_teleport(self):
+        tracker = self.tracker()
+        for now, x in ((101, 0.0), (102, 0.5), (103, 10.0), (104, 10.5)):
+            tracker.update_odom(now, x, 0.0, 0.5)
+        self.assertAlmostEqual(tracker.distance, 1.0)
 
 
 if __name__ == '__main__':
